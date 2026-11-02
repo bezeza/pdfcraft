@@ -8858,3 +8858,45 @@ fn content_after_an_inline_image_holding_ei_is_still_read() {
     // `EI` inside the data was not taken for the end.
     assert!(page.contains("AFTER"), "the content after the image was lost: {page:?}");
 }
+
+/// A fallback query for a font the document doesn't embed, with the given collection.
+#[cfg(not(target_arch = "wasm32"))]
+fn fallback_query(
+    name: &str,
+    collection: Option<hayro::hayro_interpret::hayro_cmap::CharacterCollection>,
+) -> hayro::hayro_interpret::font::FontQuery {
+    use hayro::hayro_interpret::font::{FallbackFontQuery, FontQuery, FontStretch};
+    FontQuery::Fallback(FallbackFontQuery {
+        post_script_name: Some(name.into()),
+        font_name: Some(name.into()),
+        font_family: Some(name.into()),
+        font_stretch: FontStretch::Normal,
+        font_weight: 400,
+        is_fixed_pitch: false,
+        is_serif: false,
+        is_italic: false,
+        is_bold: false,
+        is_small_cap: false,
+        character_collection: collection,
+    })
+}
+
+/// Issue: Cyrillic text in a non-embedded Tahoma drew nothing, because hayro's substitute for it
+/// is a standard 14 font with no Cyrillic. A Latin/Cyrillic font (Inter) must stand in instead.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_non_embedded_latin_font_is_replaced_by_the_bundled_cyrillic_face() {
+    let query = fallback_query("Tahoma", None);
+    let (data, index) = super::latin_fallback(&query).expect("Tahoma gets a stand-in");
+    assert_eq!(index, 0);
+    assert!((*data).as_ref().len() > 1000, "a real font file, not an empty stub");
+}
+
+/// CJK collections keep their own resolver step: the Latin face must not be offered for them.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn the_latin_stand_in_leaves_cjk_collections_alone() {
+    use hayro::hayro_interpret::hayro_cmap::{CharacterCollection, CidFamily};
+    let japan = CharacterCollection { family: CidFamily::AdobeJapan1, supplement: 6 };
+    assert!(super::latin_fallback(&fallback_query("HeiseiMin-W3", Some(japan))).is_none());
+}

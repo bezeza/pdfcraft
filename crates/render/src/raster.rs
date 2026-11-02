@@ -106,11 +106,27 @@ impl RenderConfig {
             ocg_overrides: self.layers.clone(),
             hide_comments: self.hide_comments,
             font_resolver: Arc::new(move |query| {
-                japanese_fallback(query).or_else(|| system_fonts.then(|| system_fallback(query)).flatten()).or_else(|| standard(query))
+                japanese_fallback(query)
+                    .or_else(|| latin_fallback(query))
+                    .or_else(|| system_fonts.then(|| system_fallback(query)).flatten())
+                    .or_else(|| standard(query))
             }),
             ..InterpreterSettings::default()
         }
     }
+}
+
+/// The bundled Inter face for a font the PDF doesn't embed and that isn't a CJK collection, such
+/// as Tahoma or Verdana. The standard 14 that hayro substitutes have no Cyrillic, so Cyrillic text
+/// in such a font drew nothing. Inter is in every build (`document_latin_fonts`) and covers Latin,
+/// Greek and Cyrillic. `None` for the CJK collections and for fonts that are embedded.
+fn latin_fallback(query: &FontQuery) -> Option<(FontData, u32)> {
+    let FontQuery::Fallback(f) = query else { return None };
+    if f.character_collection.as_ref().is_some_and(|c| !matches!(c.family, CidFamily::AdobeIdentity | CidFamily::Custom { .. })) {
+        return None;
+    }
+    let face = pdfcraft_fonts::document_latin_fonts(f.is_bold || f.font_weight >= 600).into_iter().next()?;
+    Some((Arc::new(face.bytes), 0))
 }
 
 /// A Japanese face from craft-fonts for a CID font of the Adobe-Japan1 collection that the PDF
